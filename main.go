@@ -2,11 +2,17 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
+	"log"
 	"os"
-	"strconv"
 	"strings"
 )
+
+type Card struct {
+	Term       string `json:"term"`
+	Definition string `json:"def"`
+}
 
 func readUserInput(reader *bufio.Reader) string {
 	line, _ := reader.ReadString('\n')
@@ -14,88 +20,129 @@ func readUserInput(reader *bufio.Reader) string {
 	return line
 }
 
-func readCardsNumber(reader *bufio.Reader) (int, error) {
-	fmt.Println("Input the number of cards:")
-	inp := readUserInput(reader)
-	cards, err := strconv.ParseInt(inp, 10, 32)
+func readCard(reader *bufio.Reader) (string, string) {
+	fmt.Println("The card:")
+	term, _ := reader.ReadString('\n')
+	fmt.Println("The definition of the card:")
+	def, _ := reader.ReadString('\n')
+	return term, def
+}
+
+func addCard(termToDef map[string]string, term string, def string) bool {
+	_, ok := termToDef[term]
+
+	if ok {
+		fmt.Printf("This <%s/%s> already exists. Try again:\n", term, def)
+		return false
+	} else {
+		termToDef[term] = def
+		fmt.Printf("The pair (\"%s\":\"%s\") has been added\n", term, def)
+		return true
+	}
+}
+
+func removeCard(termToDef map[string]string, term string) bool {
+	_, ok := termToDef[term]
+	if ok {
+		delete(termToDef, term)
+		fmt.Println("The card has been removed.")
+		return true
+	} else {
+		fmt.Printf("Can't remove \"%s\": there is no such card.", term)
+		return false
+	}
+}
+
+func readFileName(reader *bufio.Reader) string {
+	fmt.Println("File name:")
+	fileName := readUserInput(reader)
+	return fileName
+}
+
+func importCards(fileName string, termToDef map[string]string) (int, error) {
+	file, err := os.OpenFile(fileName, os.O_RDONLY, 0444)
 	if err != nil {
-		return -1, err
+		return 0, err
 	}
-	return int(cards), nil
-}
-
-func contains(array []string, word string) bool {
-	for _, elem := range array {
-		if elem == word {
-			return true
+	importedCardsCnt := 0
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		card := Card{}
+		err = json.Unmarshal(line, &card)
+		if err != nil {
+			log.Fatal(err)
 		}
+		termToDef[card.Term] = card.Definition
+		importedCardsCnt++
 	}
-	return false
+	return importedCardsCnt, nil
 }
 
-func readTerm(reader *bufio.Reader, terms []string, idx int) string {
-	fmt.Printf("The term for card #%d:\n", idx)
-	term := readUserInput(reader)
-	for contains(terms, term) {
-		fmt.Printf("The term \"%s\" already exists. Try again:\n", term)
-		term = readUserInput(reader)
+func exportCards(fileName string, termToDef map[string]string) (int, error) {
+	file, err := os.OpenFile(fileName, os.O_CREATE|os.O_WRONLY, 0222)
+	if err != nil {
+		return 0, err
 	}
-	return term
-}
-
-func readDefinition(reader *bufio.Reader, definitions []string, idx int) string {
-	fmt.Printf("The definition for card #%d:\n", idx)
-	definition := readUserInput(reader)
-	for contains(definitions, definition) {
-		fmt.Printf("The definition \"%s\" already exists. Try again:\n", definition)
-		definition = readUserInput(reader)
-	}
-	return definition
-}
-
-func readAnswer(reader *bufio.Reader, term string) string {
-	fmt.Printf("Print the definition of \"%s\":\n", term)
-	ans := readUserInput(reader)
-	return ans
-}
-
-func appliedDefToAnotherTerm(
-	terms []string,
-	definitions []string,
-	userDef string,
-) (bool, string) {
-	for i, elem := range definitions {
-		if userDef == elem {
-			return true, terms[i]
+	exportedCards := 0
+	writer := bufio.NewWriter(file)
+	for term, def := range termToDef {
+		card := Card{Term: term, Definition: def}
+		cardJSON, err := json.Marshal(card)
+		if err != nil {
+			return 0, err
 		}
+		_, err = fmt.Fprintln(writer, cardJSON)
+		if err != nil {
+			return 0, err
+		}
+		exportedCards++
 	}
-	return false, ""
+	return exportedCards, nil
 }
 
 func main() {
 	reader := bufio.NewReader(os.Stdin)
-	cards, _ := readCardsNumber(reader)
-	terms := []string{}
-	definitions := []string{}
-	for i := 1; i <= cards; i++ {
-		term := readTerm(reader, terms, i)
-		definition := readDefinition(reader, definitions, i)
-		terms = append(terms, term)
-		definitions = append(definitions, definition)
-	}
+	termToDef := map[string]string{}
+	for cmd := readUserInput(reader); cmd != "exit"; {
+		fmt.Println("Input the action (add, remove, import, export, ask, exit):")
 
-	for i := 0; i < cards; i++ {
-		term, def := terms[i], definitions[i]
-		userDef := readAnswer(reader, term)
-		if userDef == def {
-			fmt.Println("Correct!")
-		} else {
-			ok, anotherTerm := appliedDefToAnotherTerm(terms, definitions, userDef)
-			if ok {
-				fmt.Printf("Wrong. The right answer is \"%s\", but your definition is correct for \"%s\".\n", def, anotherTerm)
-			} else {
-				fmt.Printf("Wrong. The right answer is \"%s\".\n", def)
+		switch cmd {
+		case "add":
+			term, def := readCard(reader)
+			for ok := addCard(termToDef, term, def); !ok; {
 			}
+		case "remove":
+			fmt.Println("Which card?")
+			term := readUserInput(reader)
+			removeCard(termToDef, term)
+		case "import":
+			fileName := readFileName(reader)
+			loadedCards, err := importCards(fileName, termToDef)
+			if err != nil {
+				fmt.Println("File not found.")
+			} else {
+				fmt.Printf("%d cards have been loaded.\n", loadedCards)
+			}
+		case "export":
+			fileName := readFileName(reader)
+			exportedCards, err := exportCards(fileName, termToDef)
+			if err != nil {
+				log.Fatal(err)
+			}
+			fmt.Printf("%d cards have been saved.\n", exportedCards)
+		case "ask":
+			fmt.Println("How many times to ask?")
+			var questions int
+			_, err := fmt.Scan(&questions)
+			if err != nil {
+				log.Fatal(err)
+			}
+			// TODO: we need create navigation map for traverse through insertion order
+			for i := 0; i < questions; i++ {
+			}
+		case "exit":
+			break
 		}
 	}
 }
