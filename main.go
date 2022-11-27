@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -378,9 +379,25 @@ func HardestCard(cards *Cards) string {
 }
 
 func main() {
+	importFrom := flag.String("import_from", "", "")
+	exportTo := flag.String("export_to", "", "")
+	flag.Parse()
+
 	logger = NewList[string]()
 	reader := bufio.NewReader(os.Stdin)
 	cards := NewCards()
+
+	if *importFrom != "" {
+		file, err := os.OpenFile(*importFrom, os.O_RDONLY, 0444)
+		if err != nil {
+			fmt.Println("File not found.")
+			logger.PushBack("File not found.")
+		} else {
+			loadedCards := ImportCards(file, cards)
+			fmt.Printf("%d cards have been loaded.\n", loadedCards)
+			logger.PushBack(fmt.Sprintf("%d cards have been loaded.", loadedCards))
+		}
+	}
 	cmd := ""
 	for cmd != "exit" {
 		fmt.Println("Input the action (add, remove, import, export, ask, exit, log, hardest card, reset stats):")
@@ -485,6 +502,15 @@ func main() {
 				}
 			}
 		case "exit":
+			if *exportTo != "" {
+				file, err := os.OpenFile(*exportTo, os.O_CREATE|os.O_WRONLY, 0644)
+				if err != nil {
+					log.Fatal(err)
+				}
+				exportedCards := ExportCards(file, cards)
+				fmt.Printf("%d cards have been saved.\n", exportedCards)
+				logger.PushBack(fmt.Sprintf("%d cards have been saved.", exportedCards))
+			}
 			fmt.Print("Bye bye!")
 			logger.PushBack("Bye bye!")
 			os.Exit(0)
